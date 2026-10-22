@@ -1,0 +1,62 @@
+{
+  "name": "cortico-world-speechreview",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "通用审核：独立审核 QQ、直播语音字幕、输入与记忆内容，提供本机审核接口。",
+  "main": "./src/definition.ts",
+  "exports": {
+    ".": "./src/definition.ts",
+    "./cloud": "./src/cloud.ts"
+  },
+  "cortico": {
+    "kind": "world",
+    "api": 6,
+    "displayName": "通用审核",
+    "describe": "describe.json",
+    "tags": [
+      "external-setup",
+      "requires-key",
+      "sensitive-data"
+    ]
+  },
+  "scripts": {
+    "test": "node --import tsx --import cortico/extensions/runtime.ts --test tests/check.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "license": "MIT",
+  "author": "Kpect10086",
+  "keywords": [
+    "cortico-world",
+    "content-review"
+  ],
+  "engines": {
+    "node": ">=22.16.0"
+  },
+  "files": [
+    "src",
+    "tests",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "describe.json",
+    "tsconfig.json"
+  ],
+  "devDependencies": {
+    "cortico": "0.2.4",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "@types/node": "^22.10.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Kpect10086/cortico-world-speechreview.git"
+  },
+  "homepage": "https://github.com/Kpect10086/cortico-world-speechreview#readme",
+  "bugs": {
+    "url": "https://github.com/Kpect10086/cortico-world-speechreview/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}
