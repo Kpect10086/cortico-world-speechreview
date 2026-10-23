@@ -6,7 +6,6 @@ export class ReviewSlots {
   constructor(private readonly limit: () => number) {}
   acquire(memory: boolean, signal: AbortSignal): Promise<() => void> {
     if (signal.aborted) return Promise.reject(Error('Review cancelled'));
-    if (this.waiting.length >= 64) return Promise.reject(Error('Review queue full'));
     return new Promise((resolve, reject) => {
       const entry = {memory, start: () => {
         signal.removeEventListener('abort', abort);
@@ -23,6 +22,12 @@ export class ReviewSlots {
       };
       signal.addEventListener('abort', abort, {once: true});
       this.waiting.push(entry); this.pump();
+      // A live request may use the reserved slot even when the memory backlog is full.
+      if (this.waiting.length > 64) {
+        this.waiting = this.waiting.filter(row => row !== entry);
+        signal.removeEventListener('abort', abort);
+        reject(Error('Review queue full'));
+      }
     });
   }
   private pump(): void {

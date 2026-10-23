@@ -10,7 +10,7 @@
 
 请求：POST /review，Content-Type: application/json，正文为 {"text":"待审核内容","purpose":"broadcast"}。purpose 支持 broadcast、message、incoming、received、memory。返回 allow、reason、elapsedMs；记忆和接收文本的替换仅在二次审核通过后返回 sanitizedText。审核服务不可用或未配置模型密钥时不会放行原文。
 
-reviewEnabled 默认 true；关闭后内容直通且不调用模型，广播持续安静要求仍有效。directorStatusFile、hostingStateFile 为可选文件，默认留空，无需直播导演插件。仅通过回环连接调用，不接受浏览器 Origin。服务接收的正文会发送至你所配置的审核供应商。
+reviewEnabled 默认 true；关闭后内容直通且不调用模型，广播持续安静要求仍有效。directionFile、hostingStateFile 为可选文件，默认留空，无需直播导演插件。仅通过回环连接调用，不接受浏览器 Origin。服务接收的正文会发送至你所配置的审核供应商。
 
 ## 行为与开发
 
@@ -24,3 +24,9 @@ All purposes use one semantic policy covering sensitive subjects, abuse and disg
 
 
 npm install、npm test、npm run typecheck。测试使用本机模拟供应商，不需要真实密钥或对外发消息。200ms 为目标，不是延迟保证。
+
+## Linux 与验证
+
+服务使用 Node.js 原生 HTTP、fetch 和跨平台文件 API，可在 Linux 上部署；没有 PowerShell、Windows GUI 或 DLL 依赖。Linux 配置文件路径区分大小写；如启用 `directionFile` / `hostingStateFile`，请使用部署主机可读取的路径。QQ ProMAX 与本服务必须共享回环网络（同一主机或同一容器网络命名空间），或在容器内共同部署；`127.0.0.1` 不指向另一台主机。
+
+GitHub Actions 提供 Ubuntu / Windows、Node.js 22.22.2 / 24 的安装、测试与类型检查矩阵。新增测试覆盖未配置模型或密钥时不访问供应商、替换复核保留自定义词表、排队总延迟、启动失败后恢复、完整记忆队列下保留即时审核容量。工作流需提交到 GitHub 后运行；提供工作流文件不代表已经完成远端 CI。

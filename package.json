@@ -1,6 +1,6 @@
 {
   "name": "cortico-world-speechreview",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "通用审核：独立审核 QQ、直播语音字幕、输入与记忆内容，提供本机审核接口。",
   "main": "./src/definition.ts",
@@ -20,7 +20,7 @@
     ]
   },
   "scripts": {
-    "test": "node --import tsx --import cortico/extensions/runtime.ts --test tests/check.test.ts",
+    "test": "node --import tsx --import cortico/extensions/runtime.ts --test tests/check.test.ts tests/regressions.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "license": "MIT",

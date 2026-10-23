@@ -42,8 +42,11 @@ async function readText(req: IncomingMessage): Promise<string> {
 
 export function englishBan(text: string, terms: string[]): string | undefined {
   const normalized = text.normalize('NFKC');
-  return terms.find(term => /^[a-z]+(?:[ '\u2019-][a-z]+)*$/i.test(term) &&
-    new RegExp(`(?<![a-z0-9_])${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![a-z0-9_])`, 'i').test(normalized));
+  return terms.find(term => {
+    const word = term.normalize('NFKC');
+    return /^[a-z]+(?:[ '\u2019-][a-z]+)*$/i.test(word) &&
+      new RegExp(`(?<![a-z0-9_])${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![a-z0-9_])`, 'i').test(normalized);
+  });
 }
 
 export class SpeechreviewWorld implements World {
@@ -59,15 +62,19 @@ export class SpeechreviewWorld implements World {
   webUi(): WorldWebUiDecl {
     return {config: [SPEECHREVIEW_CONFIG_GROUP], badges: [
       {label: '审核', value: !this.server ? '未启动' : this.opts.cfg.reviewEnabled === false ? '已关闭；内容直通' : '已开启；故障拦截', tone: this.server && this.opts.cfg.reviewEnabled !== false ? 'on' : 'off'},
-      {label: '最近决策', value: this.last.elapsedMs ? `${this.last.elapsedMs}ms` : '尚无请求', tone: 'plain'},
+      {label: '最近决策', value: typeof this.last.elapsedMs === 'number' ? `${this.last.elapsedMs}ms` : '尚无请求', tone: 'plain'},
     ]};
   }
   async start(host: WorldHost): Promise<void> {
+    if (this.server) throw new Error('Speechreview is already started');
     this.host = host;
     const slots = new ReviewSlots(() => this.opts.cfg.maxConcurrent);
     this.server = createServer((req, res) => {
-      const send = (status: number, data: unknown) => {res.writeHead(status, {'Content-Type': 'application/json'}); res.end(JSON.stringify(data));};
-      if (req.headers.origin) {send(403, {allow: false, reason: 'browser-origin'}); return;}
+      const send = (status: number, data: unknown) => {
+        if (res.destroyed || res.writableEnded) return;
+        res.writeHead(status, {'Content-Type': 'application/json'}); res.end(JSON.stringify(data));
+      };
+      if (req.headers.origin !== undefined) {send(403, {allow: false, reason: 'browser-origin'}); return;}
       if (req.method === 'GET' && req.url === '/status') {send(200, {ready: true, reviewEnabled: this.opts.cfg.reviewEnabled !== false, active: this.active, last: this.last}); return;}
       if (req.method !== 'POST' || req.url !== '/review') {send(404, {allow: false}); return;}
       const controller = new AbortController(); this.controllers.add(controller);
@@ -83,6 +90,7 @@ export class SpeechreviewWorld implements World {
         const started = performance.now();
         const instructions = purpose === 'broadcast' ? hostingInstructions(this.opts.cfg.hostingStateFile) : [];
         const blocked = this.opts.cfg.blockedTexts.split(/[|丨]/u).map(s => s.trim()).filter(Boolean);
+        const semanticTerms = blocked.filter(term => /\p{Script=Han}/u.test(term));
         const banned = englishBan(text, blocked);
         let result: {allow: boolean; reason: string; elapsedMs: number; sanitizedText?: string};
         if (instructions.some(i => i.kind === 'quiet')) {
@@ -100,26 +108,27 @@ export class SpeechreviewWorld implements World {
           const recent = host.store.range({limit: 16}).filter(e => ['asr','terminal','vtuber','bilibili','streamdirector'].includes(e.source) && e.text.length < 2000).slice(-8)
             .map(e => ({source: e.source, type: e.type, text: e.text.slice(0, 400)}));
           const decision = await decide(this.opts.cfg, this.opts.secret(this.opts.cfg.apiKeySecret), REVIEW_PROMPT,
-            {text, purpose, englishBan: banned, semanticTerms: blocked.filter(term => /\p{Script=Han}/u.test(term)), context: purpose === 'broadcast' ? recent : [], scene: mode, operatorInstructions: instructions}, this.host, '内容审核', controller.signal, ['memory','received'].includes(purpose) ? 8192 : 240);
+            {text, purpose, englishBan: banned, semanticTerms, context: purpose === 'broadcast' ? recent : [], scene: mode, operatorInstructions: instructions}, this.host, '内容审核', controller.signal, ['memory','received'].includes(purpose) ? 8192 : 240);
           result = {...validateReview(decision.value), elapsedMs: decision.elapsedMs};
           if (banned) {result.allow = false; result.reason = 'blocked-term';}
           if (['memory','received'].includes(purpose) && !result.allow) {
             let safe = (decision.value as {sanitizedText?: unknown}).sanitizedText;
             if (typeof safe !== 'string' || !safe.trim() || safe.length > 6000) {
               const repair = await decide(this.opts.cfg, this.opts.secret(this.opts.cfg.apiKeySecret), REVIEW_PROMPT,
-                {text, purpose, englishBan: banned, task: '上次拒绝决定缺少 sanitizedText。保留原拒绝，输出 sanitizedText：温和替换敏感部分，保留说话人、否定、时间与安全事实。'},
+                {text, purpose, englishBan: banned, semanticTerms, task: '上次拒绝决定缺少 sanitizedText。保留原拒绝，输出 sanitizedText：温和替换敏感部分，保留说话人、否定、时间与安全事实。'},
                 this.host, '补全安全替换文本', controller.signal, 8192);
               safe = (repair.value as {sanitizedText?: unknown})?.sanitizedText;
               result.elapsedMs += repair.elapsedMs;
             }
             if (typeof safe !== 'string' || !safe.trim() || safe.length > 6000) throw new Error('Invalid sanitized memory');
             const check = await decide(this.opts.cfg, this.opts.secret(this.opts.cfg.apiKeySecret), REVIEW_PROMPT,
-              {text: safe, purpose, context: [], operatorInstructions: []}, this.host, '敏感片段替换复核', controller.signal);
+              {text: safe, purpose, semanticTerms, context: [], operatorInstructions: []}, this.host, '敏感片段替换复核', controller.signal);
             if (!validateReview(check.value).allow || englishBan(safe, blocked)) throw new Error('Sanitized memory rejected');
             result.sanitizedText = safe;
             result.elapsedMs += check.elapsedMs;
           }
         }
+        result.elapsedMs = Math.round(performance.now() - started);
         this.last = {...result, withinTarget: result.elapsedMs <= this.opts.cfg.targetMs};
         send(200, result);
       })().catch(error => {
@@ -128,7 +137,21 @@ export class SpeechreviewWorld implements World {
         send(503, {allow: false, reason: 'unavailable'});
       }).finally(() => {if (release) {this.active--; release();} this.controllers.delete(controller);});
     });
-    await new Promise<void>((resolve, reject) => {this.server!.once('error', reject); this.server!.listen(this.opts.cfg.port, '127.0.0.1', resolve);});
+    const server = this.server;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const failed = (error: Error) => reject(error);
+        server.once('error', failed);
+        server.listen(this.opts.cfg.port, '127.0.0.1', () => {
+          server.removeListener('error', failed);
+          resolve();
+        });
+      });
+    } catch (error) {
+      server.close();
+      if (this.server === server) {this.server = null; this.host = null;}
+      throw error;
+    }
   }
   async stop(): Promise<void> {
     for (const controller of this.controllers) controller.abort();

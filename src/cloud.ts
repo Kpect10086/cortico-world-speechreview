@@ -7,12 +7,13 @@ export interface CloudOptions {
 /** Complete decisions are timed at the client, including transport and parsing. */
 export async function decide(cfg: CloudOptions, key: string, system: string, input: unknown,
   host: WorldHost | null, lane: string, signal?: AbortSignal, maxTokens = 240): Promise<{value: unknown; elapsedMs: number}> {
+  if (!cfg.model.trim() || !key.trim()) throw new Error('Review model and API key are required');
   const started = performance.now();
   const deadline = AbortSignal.timeout(cfg.timeoutMs);
   const response = await fetch(cfg.endpoint.replace(/\/$/, '') + '/chat/completions', {
     method: 'POST', signal: signal ? AbortSignal.any([signal, deadline]) : deadline,
-    headers: {'Content-Type': 'application/json', Authorization: `Bearer ${key}`},
-    body: JSON.stringify({model: cfg.model, thinking: {type: 'disabled'}, stream: false,
+    headers: {'Content-Type': 'application/json', Authorization: `Bearer ${key.trim()}`},
+    body: JSON.stringify({model: cfg.model.trim(), thinking: {type: 'disabled'}, stream: false,
       response_format: {type: 'json_object'}, max_tokens: maxTokens,
       messages: [{role: 'system', content: system}, {role: 'user', content: JSON.stringify(input)}]}),
   });
